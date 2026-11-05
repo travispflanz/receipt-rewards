@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#111318" />
+<meta name="robots" content="noindex" />
+<title>Receipt Rewards</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23ffbc0d'/><path d='M18 14h28v38l-5-3-4 3-5-3-4 3-5-3-5 3z' fill='%23111318'/><path d='M24 26h16M24 33h16M24 40h10' stroke='%23ffbc0d' stroke-width='3' stroke-linecap='round'/></svg>" />
+<style>
+  :root {
+    --bg: #f5f3ee; --card: #ffffff; --ink: #16181d; --muted: #6b6f78; --line: #e4e1d9;
+    --accent: #ffbc0d; --accent-ink: #16181d; --good: #1f8a4c; --bad: #c0392b; --info: #2f5fd0;
+    --radius: 18px; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --card: #181b21; --ink: #f1f2f4; --muted: #9aa0aa; --line: #2a2e36; --shadow: none; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 18px 16px calc(40px + env(safe-area-inset-bottom)); }
+  header { display: flex; align-items: center; gap: 12px; margin: 6px 2px 18px; }
+  header .logo { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); display: grid; place-items: center; font-weight: 800; color: var(--accent-ink); }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .step { width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--bg); font-size: 12px; display: inline-grid; place-items: center; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { appearance: none; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 12px; padding: 12px 14px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; justify-content: center; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.grow { flex: 1 1 140px; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-size: 17px; padding: 15px; width: 100%; }
+  .btn.small { padding: 7px 10px; font-size: 13px; border-radius: 10px; }
+  .btn.danger { color: var(--bad); }
+  .btn.rec { background: var(--bad); color: #fff; border-color: transparent; }
+  input[type=text], input[type=password], textarea, select { width: 100%; font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; }
+  textarea { min-height: 96px; resize: vertical; }
+  label.field { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .preview { position: relative; margin-top: 12px; display: none; }
+  .preview img { width: 100%; max-height: 340px; object-fit: contain; border-radius: 12px; background: #0002; }
+  .preview .tools { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; margin-top: 10px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; }
+  .status { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .spinner { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin 0.9s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bar { height: 6px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 12px 0 4px; }
+  .bar > i { display: block; height: 100%; width: 4%; background: var(--accent); transition: width .4s; }
+  details.page { border-top: 1px solid var(--line); padding: 8px 0; }
+  details.page summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+  .dec { font-size: 13px; padding: 6px 0 6px 10px; border-left: 3px solid var(--line); margin: 6px 0; }
+  .dec b { font-weight: 600; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--line); color: var(--muted); margin-left: 4px; vertical-align: 1px; }
+  .tag.notes { background: #ffe9a8; color: #6b4e00; }
+  .tag.receipt { background: #d9e6ff; color: #1d3f8f; }
+  .tag.default-middle { background: #e6e6e6; color: #444; }
+  .result { text-align: center; }
+  .code { font: 800 44px/1.1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .06em; margin: 10px 0; word-break: break-all; }
+  .ok { color: var(--good); }
+  .err { color: var(--bad); }
+  .hist { font-size: 14px; }
+  .hist .item { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .hist .item:first-child { border-top: 0; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .switch { display: flex; align-items: center; gap: 10px; font-size: 14px; margin-top: 12px; }
+  .hidden { display: none !important; }
+  .review-q { margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+  .review-q p { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo">R</div>
+    <div>
+      <h1>Receipt Rewards</h1>
+      <p>Snap a receipt, add notes, get the survey reward code.</p>
+    </div>
+  </header>
+
+  <section id="gate" class="card hidden">
+    <h2>Enter passcode</h2>
+    <input id="pass" type="password" autocomplete="current-password" placeholder="Passcode" />
+    <div class="row" style="margin-top:10px"><button id="passBtn" class="btn grow">Unlock</button></div>
+    <p id="passMsg" class="hint"></p>
+  </section>
+
+  <div id="app" class="hidden">
+    <section class="card">
+      <h2><span class="step">1</span> Receipt</h2>
+      <div class="row">
+        <label class="btn grow">📷 Take photo<input id="camera" type="file" accept="image/*" capture="environment" hidden /></label>
+        <label class="btn grow">🖼️ Upload<input id="upload" type="file" accept="image/*" hidden /></label>
+      </div>
+      <div id="preview" class="preview">
+        <img id="previewImg" alt="Receipt preview" />
+        <div class="tools"><button id="rotate" class="btn small" title="Rotate">⟳ Rotate</button></div>
+      </div>
+      <p id="ocrStatus" class="hint"></p>
+      <dl id="facts" class="facts hidden"></dl>
+      <label class="field" for="code">Survey code (26 digits)</label>
+      <input id="code" type="text" inputmode="numeric" autocomplete="off" placeholder="12345-12345-12345-12345-12345-1" class="mono" />
+      <label class="field" for="brand">Restaurant</label>
+      <select id="brand"></select>
+    </section>
+
+    <section class="card">
+      <h2><span class="step">2</span> Notes <span class="hint" style="margin:0">(optional)</span></h2>
+      <textarea id="notes" placeholder="Type or dictate anything about the visit — e.g. “fries were hot, order took a while, cashier was friendly”."></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="mic" class="btn small" type="button">🎙️ Dictate</button>
+        <span id="micState" class="hint" style="margin:0;align-self:center"></span>
+      </div>
+      <p class="hint">No notes = every rating gets the middle option, and anything the receipt can't answer is left as “no preference”.</p>
+      <label class="switch"><input id="review" type="checkbox" /> Let me check each page before it’s submitted</label>
+    </section>
+
+    <button id="go" class="btn primary">Get my code</button>
+
+    <section id="progress" class="card hidden" style="margin-top:14px">
+      <div class="status"><div id="spin" class="spinner"></div><span id="stage">Starting…</span></div>
+      <div class="bar"><i id="barFill"></i></div>
+      <p id="runMeta" class="hint"></p>
+      <div id="reviewBox" class="hidden"></div>
+      <div id="pagesLog"></div>
+      <div class="row" style="margin-top:10px"><button id="cancel" class="btn small danger">Stop</button></div>
+    </section>
+
+    <section id="result" class="card result hidden">
+      <div class="ok" style="font-weight:700">Survey complete</div>
+      <div id="valCode" class="code"></div>
+      <div class="row" style="justify-content:center">
+        <button id="copy" class="btn small">Copy code</button>
+        <button id="again" class="btn small">New receipt</button>
+      </div>
+      <p id="valText" class="hint"></p>
+      <p class="hint">Write the code on your receipt and bring it back for the offer printed on it.</p>
+    </section>
+
+    <section id="failure" class="card hidden">
+      <div class="err" style="font-weight:700">Couldn’t finish</div>
+      <p id="failText" style="margin:6px 0 0"></p>
+      <p class="hint">Nothing was guessed past this point. The survey can be started again with the same receipt if it wasn’t completed.</p>
+      <div class="row"><button id="retry" class="btn small">Try again</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Recent codes</h2>
+      <div id="history" class="hist"><p class="hint">None yet.</p></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+  let passcode = store.get("rr_passcode") || "";
+  let receipt = null, imageCanvas = null, rotation = 0, currentRun = null, pollTimer = null, brands = [];
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", "x-passcode": passcode, ...(opts.headers || {}) } });
+    if (res.status === 401) { showGate("Passcode required."); throw new Error("passcode required"); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  function showGate(msg) { $("gate").classList.remove("hidden"); $("app").classList.add("hidden"); $("passMsg").textContent = msg || ""; }
+  async function unlock() {
+    try {
+      const s = await api("/api/session");
+      brands = s.brands;
+      $("brand").innerHTML = brands.map((b) => `<option value="${b.id}">${b.name}</option>`).join("");
+      $("gate").classList.add("hidden"); $("app").classList.remove("hidden");
+      loadHistory();
+      const last = store.get("rr_last_run");
+      if (last) resume(last);
+    } catch (e) { if (e.message !== "passcode required") showGate(e.message); }
+  }
+  $("passBtn").onclick = () => { passcode = $("pass").value.trim(); store.set("rr_passcode", passcode); unlock(); };
+  $("pass").onkeydown = (e) => { if (e.key === "Enter") $("passBtn").click(); };
+
+  // ---------- image handling ----------
+  async function loadFile(file) {
+    if (!file) return;
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+    catch { bmp = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); }); }
+    const max = 1600, scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    imageCanvas = c; rotation = 0;
+    showPreview(); readReceipt();
+  }
+  function rotated(deg) {
+    const src = imageCanvas, c = document.createElement("canvas");
+    const swap = deg % 180 !== 0;
+    c.width = swap ? src.height : src.width; c.height = swap ? src.width : src.height;
+    const g = c.getContext("2d");
+    g.translate(c.width / 2, c.height / 2); g.rotate((deg * Math.PI) / 180); g.drawImage(src, -src.width / 2, -src.height / 2);
+    return c;
+  }
+  const dataUrl = (deg = rotation) => rotated(deg).toDataURL("image/jpeg", 0.85);
+  function showPreview() { $("preview").style.display = "block"; $("previewImg").src = dataUrl(); }
+  $("camera").onchange = (e) => loadFile(e.target.files[0]);
+  $("upload").onchange = (e) => loadFile(e.target.files[0]);
+  $("rotate").onclick = () => { if (!imageCanvas) return; rotation = (rotation + 90) % 360; showPreview(); readReceipt(); };
+
+  async function readReceipt() {
+    $("ocrStatus").innerHTML = '<span class="status" style="font-weight:500"><span class="spinner"></span> Reading the receipt…</span>';
+    $("facts").classList.add("hidden");
+    const tries = [rotation, (rotation + 90) % 360, (rotation + 270) % 360];
+    let best = null;
+    for (const deg of tries) {
+      try {
+        const r = await api("/api/extract", { method: "POST", body: JSON.stringify({ image: dataUrl(deg) }) });
+        best = r.receipt;
+        if (best.surveyCode) break;
+        $("ocrStatus").innerHTML = '<span class="status" style="font-weight:500"><span class="spinner"></span> Trying another angle…</span>';
+      } catch (e) { best = best || null; if (e.message === "passcode required") return; }
+    }
+    receipt = best;
+    if (!best) { $("ocrStatus").textContent = "Couldn’t read the photo. Type the survey code below."; return; }
+    if (best.surveyCode) $("code").value = best.surveyCode;
+    if (best.brandId && brands.some((b) => b.id === best.brandId)) $("brand").value = best.brandId;
+    $("ocrStatus").innerHTML = best.surveyCode ? '<span class="ok">✓ Receipt read.</span> Check the code below.' : '<span class="err">Survey code not found on the photo.</span> Type it in below.';
+    const f = [["Restaurant", best.brand], ["Date", [best.date, best.time].filter(Boolean).join(" ")], ["Order", [best.orderType, best.orderChannel].filter(Boolean).join(" · ")], ["Table", best.tableNumber], ["Items", (best.items || []).map((i) => `${i.qty} ${i.name}`).join(", ")], ["Offer", best.offerText]].filter(([, v]) => v);
+    $("facts").innerHTML = f.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+    $("facts").classList.toggle("hidden", !f.length);
+  }
+
+  // ---------- dictation ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, recOn = false;
+  if (!SR) { $("mic").title = "Use your keyboard's microphone key to dictate"; }
+  $("mic").onclick = () => {
+    if (!SR) { $("micState").textContent = "Tap the text box and use your keyboard’s 🎤 key."; $("notes").focus(); return; }
+    if (recOn) { rec.stop(); return; }
+    rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = true;
+    const base = $("notes").value ? $("notes").value.replace(/\s*$/, " ") : "";
+    let finalText = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript + " "; else interim += e.results[i][0].transcript;
+      }
+      $("notes").value = (base + finalText + interim).trimStart();
+    };
+    rec.onstart = () => { recOn = true; $("mic").classList.add("rec"); $("mic").textContent = "■ Stop"; $("micState").textContent = "Listening…"; };
+    rec.onend = () => { recOn = false; $("mic").classList.remove("rec"); $("mic").textContent = "🎙️ Dictate"; $("micState").textContent = ""; };
+    rec.onerror = (e) => { $("micState").textContent = "Mic: " + e.error; };
+    rec.start();
+  };
+
+  // ---------- run ----------
+  $("go").onclick = async () => {
+    const code = $("code").value.replace(/\D/g, "");
+    if (code.length !== 26) { $("code").focus(); $("ocrStatus").innerHTML = '<span class="err">The survey code needs all 26 digits.</span>'; return; }
+    $("go").disabled = true;
+    try {
+      const r = await api("/api/runs", { method: "POST", body: JSON.stringify({ surveyCode: code, receipt: receipt || {}, notes: $("notes").value, brandId: $("brand").value, review: $("review").checked }) });
+      store.set("rr_last_run", r.id);
+      resume(r.id);
+    } catch (e) { $("go").disabled = false; fail(e.message); }
+  };
+
+  function resume(id) {
+    currentRun = id;
+    $("progress").classList.remove("hidden"); $("result").classList.add("hidden"); $("failure").classList.add("hidden");
+    $("go").disabled = true;
+    clearTimeout(pollTimer); poll();
+  }
+
+  let reviewShownFor = null;
+  async function poll() {
+    if (!currentRun) return;
+    let data;
+    try { data = await api(`/api/runs/${currentRun}`); } catch (e) { pollTimer = setTimeout(poll, 4000); return; }
+    const run = data.run;
+    $("stage").textContent = run.stage || run.status;
+    $("runMeta").textContent = `${run.survey_code} · ${run.pages_done || 0} pages submitted`;
+    $("barFill").style.width = Math.min(96, 6 + (run.pages_done || 0) * 7) + "%";
+    renderLog(run.log || []);
+    if (run.status === "review" && run.pending) renderReview(run.pending); else { $("reviewBox").classList.add("hidden"); reviewShownFor = null; }
+    if (run.status === "done") return done(run);
+    if (run.status === "error") return fail(run.error || "Stopped", run);
+    pollTimer = setTimeout(poll, run.status === "review" ? 4000 : 1800);
+  }
+
+  const SRC = { notes: "from your notes", receipt: "from receipt", "default-middle": "middle", "default-prefer-not": "prefer not", "default-decline": "declined", skipped: "no preference", "review-override": "you chose", "required-no-issue": "required · no issue", "required-middle-position": "required · middle", "required-neutral": "required · neutral", "required-default-middle": "middle", "required-neutral-comment": "required · neutral" };
+  function renderLog(log) {
+    const pages = log.filter((l) => l.type === "page");
+    $("pagesLog").innerHTML = pages.map((p) => `<details class="page"${p === pages[pages.length - 1] ? " open" : ""}><summary>Page ${p.n}${p.repeated ? " (re-asked)" : ""} · ${p.decisions.length} question${p.decisions.length === 1 ? "" : "s"}</summary>${
+      p.decisions.map((d) => `<div class="dec">${esc(d.question)}<br><b>${esc(d.answer)}</b><span class="tag ${d.source}">${SRC[d.source] || d.source}</span>${d.why ? `<br><span class="hint">${esc(d.why)}</span>` : ""}</div>`).join("") || '<div class="dec">Information only</div>'
+    }</details>`).join("");
+  }
+
+  function renderReview(p) {
+    if (reviewShownFor === p.page) return;
+    reviewShownFor = p.page;
+    const box = $("reviewBox");
+    box.classList.remove("hidden");
+    box.innerHTML = `<p style="font-weight:700;margin:12px 0 4px">Page ${p.page}: check these answers</p>` + p.decisions.map((d, i) => {
+      if (!d.options || !d.options.length) return `<div class="review-q"><p>${esc(d.question)}</p><div class="hint">${esc(d.answer)}</div></div>`;
+      return `<div class="review-q"><p>${esc(d.question)}</p><div class="hint">Planned: <b>${esc(d.answer)}</b> <span class="tag ${d.source}">${SRC[d.source] || d.source}</span></div></div>`;
+    }).join("") + `<div class="row"><button class="btn grow" id="approve">Looks good — submit page</button><button class="btn small danger" id="abort">Stop</button></div>`;
+    $("approve").onclick = async () => { $("approve").disabled = true; await api(`/api/runs/${currentRun}/review`, { method: "POST", body: JSON.stringify({ page: p.page, action: "approve" }) }); box.classList.add("hidden"); };
+    $("abort").onclick = async () => { await api(`/api/runs/${currentRun}/review`, { method: "POST", body: JSON.stringify({ page: p.page, action: "abort" }) }); };
+  }
+
+  function done(run) {
+    $("progress").classList.add("hidden");
+    $("result").classList.remove("hidden");
+    $("valCode").textContent = run.validation_code;
+    $("valText").textContent = run.validation_text || "";
+    $("go").disabled = false;
+    loadHistory();
+  }
+  function fail(msg) {
+    $("progress").classList.add("hidden");
+    $("failure").classList.remove("hidden");
+    $("failText").textContent = msg;
+    $("go").disabled = false;
+    loadHistory();
+  }
+  $("cancel").onclick = async () => { if (currentRun && confirm("Stop this survey run?")) await api(`/api/runs/${currentRun}/cancel`, { method: "POST" }); };
+  $("copy").onclick = () => navigator.clipboard?.writeText($("valCode").textContent).then(() => { $("copy").textContent = "Copied ✓"; setTimeout(() => ($("copy").textContent = "Copy code"), 1500); });
+  $("again").onclick = $("retry").onclick = () => {
+    store.set("rr_last_run", ""); currentRun = null;
+    $("result").classList.add("hidden"); $("failure").classList.add("hidden"); $("progress").classList.add("hidden");
+    $("go").disabled = false; window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  async function loadHistory() {
+    try {
+      const { runs } = await api("/api/runs");
+      const rows = runs.filter((r) => r.status === "done" || r.status === "error").slice(0, 12);
+      $("history").innerHTML = rows.length ? rows.map((r) => `<div class="item"><span>${new Date(r.created_at).toLocaleString()}<br><span class="hint mono">${esc(r.survey_code || "")}</span></span><span class="${r.status === "done" ? "ok" : "err"} mono" style="font-weight:700;text-align:right">${r.status === "done" ? esc(r.validation_code) : "failed"}</span></div>`).join("") : '<p class="hint">None yet.</p>';
+    } catch {}
+  }
+
+  function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+
+  if (new URLSearchParams(location.search).get("passcode")) { passcode = new URLSearchParams(location.search).get("passcode"); store.set("rr_passcode", passcode); history.replaceState(null, "", location.pathname); }
+  unlock();
+})();
+</script>
+</body>
+</html>

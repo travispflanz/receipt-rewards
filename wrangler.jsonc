@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "receipt-rewards",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  // The single-page UI (src/ui.html) is bundled into the Worker as a text module.
+  "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "receipt-rewards",
+      "database_id": "0213a98d-9a8d-41ba-8793-d10ba177f2bb"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "receipt-rewards-survey",
+      "binding": "SURVEY_RUN",
+      "class_name": "SurveyRun"
+    }
+  ],
+  "vars": {
+    // Vision model reads the receipt photo; text model interprets notes per survey page.
+    "VISION_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    "TEXT_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  }
+  // Secret (set once, kept across deploys): APP_PASSCODE
+}

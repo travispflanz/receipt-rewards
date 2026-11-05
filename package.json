@@ -1,0 +1,21 @@
+{
+  "name": "receipt-rewards",
+  "version": "1.0.0",
+  "description": "Snap a restaurant receipt, add notes, and let a Cloudflare Worker complete the survey for the reward code.",
+  "scripts": {
+    "test": "vitest run",
+    "build": "echo \"no build step\"",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir dist"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "node-html-parser": "^9.0.6"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0",
+    "wrangler": "^4.158.0"
+  },
+  "private": true,
+  "type": "module"
+}
