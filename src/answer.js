@@ -11,6 +11,7 @@
 //     the most neutral option available (requiredFallback).
 //  Personal details (name, email, phone, address) are never entered.
 import { clean } from "./smg.js";
+import { categoryOf } from "./brands.js";
 
 export const NA_RE =
   /\b(n\/a|not applicable|does not apply|did not (use|visit|order|receive|have|notice)|didn'?t (use|visit|order|notice)|no opinion|don'?t (know|remember|recall)|do not (know|remember|recall)|not sure|unsure|prefer not|rather not|decline to|no preference|can'?t recall)\b/i;
@@ -89,23 +90,89 @@ export function scaleInfo(unit) {
       const sLo = scoreLabel(asc[0].label);
       const sHi = scoreLabel(asc[asc.length - 1].label);
       const positiveUp = !(typeof sLo === "number" && typeof sHi === "number" && sLo > sHi);
-      const n = asc.length;
-      const idx = n % 2 ? (n - 1) / 2 : positiveUp ? n / 2 : n / 2 - 1; // even scales: the milder positive side
-      return { type: "valence", middle: asc[idx] };
+      const ordered = positiveUp ? asc : [...asc].reverse(); // worst -> best
+      const n = ordered.length;
+      const idx = n % 2 ? (n - 1) / 2 : n / 2; // even scales: the milder positive side
+      return { type: "valence", middle: ordered[idx], ordered };
     }
     let best = null;
     for (const x of scored) {
       const d = Math.abs(x.s);
       if (!best || d < best.d || (d === best.d && x.s > best.s)) best = { d, s: x.s, o: x.o };
     }
-    return { type: "valence", middle: best.o };
+    const ordered = [...scored].sort((a, b) => a.s - b.s).map((x) => x.o);
+    return { type: "valence", middle: best.o, ordered };
   }
   const nums = opts.map((o) => ({ o, n: leadingNumber(o.label) })).filter((x) => x.n != null);
   if (nums.length >= 5 && nums.length >= opts.length - 1) {
     nums.sort((a, b) => a.n - b.n);
-    return { type: "numeric", middle: nums[Math.floor((nums.length - 1) / 2)].o };
+    return { type: "numeric", middle: nums[Math.floor((nums.length - 1) / 2)].o, ordered: nums.map((x) => x.o) };
   }
   return null;
+}
+
+/** Option for a 1-5 rating (1 = very bad, 3 = middle, 5 = great) on any rating scale, by position. */
+export function pickByRating(unit, rating) {
+  const info = scaleInfo(unit);
+  const r = Number(rating);
+  if (!info || !(r >= 1 && r <= 5)) return null;
+  if (r === 3) return info.middle;
+  const o = info.ordered;
+  return o[Math.round(((r - 1) / 4) * (o.length - 1))];
+}
+
+export const normLabel = (s) =>
+  clean(s)
+    .toLowerCase()
+    .replace(/[’‘`´]/g, "'")
+    .replace(/[^a-z0-9$']+/g, " ")
+    .trim();
+
+/** A saved ("profile") answer for this question, if the brand defines one and the user set it. */
+export function savedAnswer(unit, profileFields, profile) {
+  if (!profileFields?.length || !profile || (unit.kind !== "radio" && unit.kind !== "select")) return null;
+  const text = unitText(unit);
+  const f = profileFields.find((pf) => pf.match.test(text));
+  if (!f) return null;
+  const want = profile[f.id];
+  if (!want) return null;
+  const opt = unit.options.find((o) => normLabel(o.label) === normLabel(want));
+  if (!opt) return null;
+  const extra = {};
+  if (f.otherOption && normLabel(want) === normLabel(f.otherOption) && profile[f.id + "Other"]) {
+    extra[unit.field + "Other"] = String(profile[f.id + "Other"]).slice(0, 100);
+  }
+  return { value: opt.value, extra, source: "saved", why: `Saved answer: ${f.label}` };
+}
+
+const PROBLEM_Q_RE = /\b(experience|have|had|encounter)\b.*\bproblem|\bany problems?\b/i;
+const ACCURATE_Q_RE = /\b(was|were) your (order|items?) (accurate|correct)|order accura/i;
+
+/** Answer from the visit ratings / problem toggle under "Your visit". */
+export function ratingAnswer(unit, inputs) {
+  const sentiment = inputs?.sentiment || {};
+  const text = unitText(unit);
+  if (unit.kind !== "radio" && unit.kind !== "select") return null;
+  if (isYesNo(unit)) {
+    const yes = findOption(unit, /^yes\b/i);
+    const no = findOption(unit, /^no\b/i);
+    if (PROBLEM_Q_RE.test(text) && (inputs?.problem === "yes" || inputs?.problem === "no")) {
+      return { value: (inputs.problem === "yes" ? yes : no).value, source: "your-rating", why: "From “Any problems?”" };
+    }
+    const acc = Number(sentiment.accuracy);
+    if (ACCURATE_Q_RE.test(text) && acc >= 1 && acc <= 5 && acc !== 3) {
+      return { value: (acc >= 4 ? yes : no).value, source: "your-rating", why: `Order accuracy rated ${acc}/5` };
+    }
+    return null;
+  }
+  if (!scaleInfo(unit)) return null;
+  const cat = categoryOf(unit.text) || categoryOf(unit.context);
+  const r = Number(sentiment[cat]) || Number(sentiment.overall);
+  if (!(r >= 1 && r <= 5)) return null;
+  const opt = pickByRating(unit, r);
+  if (!opt) return null;
+  const used = Number(sentiment[cat]) ? cat : "overall";
+  return { value: opt.value, source: "your-rating", why: `${used} rated ${r}/5` };
 }
 
 const findOption = (unit, re) => unit.options.find((o) => re.test(clean(o.label)));
@@ -279,7 +346,7 @@ const needsModel = (units, notes) =>
  * Returns { answers: {field: value}, decisions: [{question, answer, source, why}], model }
  *   forceRequired: Set of unit indexes (or true for all unanswered) the site said must be answered.
  */
-export async function decidePage(env, page, { notes, receipt, forceRequired = null, overrides = null }) {
+export async function decidePage(env, page, { notes, receipt, inputs = null, profileFields = null, forceRequired = null, overrides = null }) {
   const units = page.units;
   const facts = receiptFacts(receipt);
   let llm = { map: new Map(), model: null, raw: null, error: null };
@@ -293,21 +360,22 @@ export async function decidePage(env, page, { notes, receipt, forceRequired = nu
 
   const answers = {};
   const decisions = [];
+  const hasNotes = !!notes?.trim();
   units.forEach((u, i) => {
     const id = `Q${i + 1}`;
     const text = unitText(u);
     const a = llm.map.get(id);
     let picked = null;
 
+    // Precedence: review override > saved answer > notes/receipt (model) > your visit ratings > defaults > required fallback.
     const override = overrides?.[u.field || u.key];
     if (override !== undefined) {
       picked = override === null ? { skip: true, source: "review-override" } : { value: override, text: override, source: "review-override" };
     }
+    if (!picked) picked = savedAnswer(u, profileFields, inputs?.profile);
 
-    // LLM answer, validated against the real options.
-    const hasNotes = !!notes?.trim();
     const llmAllowed =
-      a && a.basis && a.basis !== "none" && !(a.basis === "notes" && !hasNotes) && !(scaleInfo(u) && !hasNotes); // ratings stay middle without notes
+      a && a.basis && a.basis !== "none" && !(a.basis === "notes" && !hasNotes) && !(scaleInfo(u) && a.basis !== "notes"); // ratings move only on notes
     if (!picked && llmAllowed) {
       if ((u.kind === "radio" || u.kind === "select") && a.choice != null) {
         const opt = u.options.find((o) => o.value === String(a.choice).trim());
@@ -315,20 +383,23 @@ export async function decidePage(env, page, { notes, receipt, forceRequired = nu
       } else if (u.kind === "checkbox" && Array.isArray(a.choices) && a.choices.length) {
         const checks = a.choices.map((c) => u.options[Number(c)]).filter(Boolean);
         if (checks.length && !OPTIN_RE.test(text)) picked = { checks, source: a.basis, why: a.why };
-      } else if (u.kind === "text" && u.multiline && a.text && notes?.trim() && !PII_FIELD_RE.test(text)) {
+      } else if (u.kind === "text" && u.multiline && a.text && hasNotes && !PII_FIELD_RE.test(text)) {
         picked = { text: String(a.text).trim(), source: a.basis, why: a.why };
       }
     }
+    if (!picked) picked = ratingAnswer(u, inputs);
     if (!picked) picked = defaultAnswer(u);
     const mustAnswer = forceRequired === true || (forceRequired instanceof Set && forceRequired.has(i)) || u.error;
     if (!picked && mustAnswer) picked = requiredFallback(u, receipt);
 
     let shown = "(left blank)";
+    let source = null;
     if (picked && !picked.skip) {
       if (u.kind === "radio" || u.kind === "select") {
         if (picked.value != null && u.options.some((o) => o.value === String(picked.value))) {
           answers[u.field] = String(picked.value);
           shown = u.options.find((o) => o.value === String(picked.value)).label;
+          for (const [k, v] of Object.entries(picked.extra || {})) answers[k] = v;
         }
       } else if (u.kind === "checkbox") {
         for (const c of picked.checks || []) answers[c.field] = c.value;
@@ -339,6 +410,11 @@ export async function decidePage(env, page, { notes, receipt, forceRequired = nu
         answers[u.field] = t;
         shown = t;
       }
+      if (shown !== "(left blank)") source = picked.source;
+    }
+    if (!source && u.kind === "text" && answers[u.field]) {
+      shown = answers[u.field]; // filled alongside a saved "Somewhere else" choice
+      source = "saved";
     }
     decisions.push({
       id,
@@ -346,8 +422,8 @@ export async function decidePage(env, page, { notes, receipt, forceRequired = nu
       kind: u.kind,
       question: text || "(no text)",
       answer: shown,
-      source: picked && shown !== "(left blank)" ? picked.source : "skipped",
-      why: picked?.why || null,
+      source: source || "skipped",
+      why: source ? picked?.why || null : null,
       options: u.kind === "text" ? undefined : u.options.map((o) => o.label),
     });
   });

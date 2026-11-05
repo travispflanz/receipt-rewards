@@ -17,10 +17,17 @@ Supported now: **McDonald's** (mcdvoice.com, "Buy One Get One" sandwich offer). 
 3. **Complete the survey** — the Workflow talks to the survey site over plain HTTPS like a browser (cookies,
    redirects, form posts). Each survey page is two durable steps: *plan* (parse the page, decide answers) and
    *submit*. Every page's raw HTML is stored in D1, so a finished page and its code are never lost.
-4. **Answer policy** (`src/answer.js`)
-   - Ratings default to the **middle** option (e.g. "Neither satisfied nor dissatisfied").
-   - Your notes move ratings up or down only for the aspects they mention; a text model (`TEXT_MODEL`) reads the
-     notes and must cite them (`basis: "notes"`), otherwise its answer is ignored.
+4. **Answer policy** (`src/answer.js`), in order of precedence
+   - **Saved answers** (per restaurant, kept until changed): McDonald's favorite fast-food place, visits in the past
+     30 days, household income. Matched to the survey's options by label (the site shuffles their order).
+   - **Notes**: a text model (`TEXT_MODEL`) reads them and may move a rating only for the aspect they mention; it must
+     cite the notes (`basis: "notes"`), otherwise its answer is ignored.
+   - **Your visit ratings** (optional 1–5 faces): Overall, Food & drinks, Staff, Speed, Order accuracy, Cleanliness,
+     Value, Ordering. Each survey rating question is mapped to a category by its wording (`CATEGORY_RULES` in
+     `src/brands.js`); unrated categories use Overall; "Any problems?" and the accuracy rating answer the matching
+     yes/no questions.
+   - Ratings with nothing above default to the **middle** option (e.g. "Neither satisfied nor dissatisfied",
+     "Somewhat likely").
    - Factual questions (how you ordered, dine-in vs carry-out, items) come from the receipt.
    - Everything else is left blank ("no preference"); demographics get "Prefer not to answer"; contact/sweepstakes
      get "No". If the site insists on an answer, the most neutral option is used.
@@ -45,7 +52,8 @@ The UI is one HTML file (`src/ui.html`) bundled into the Worker. No browser auto
 | Method | Path | |
 |---|---|---|
 | POST | `/api/extract` | `{image: dataURL}` → receipt fields |
-| POST | `/api/runs` | `{surveyCode, receipt, notes, brandId, review}` → `{id}` |
+| POST | `/api/runs` | `{surveyCode, receipt, notes, brandId, review, sentiment, problem}` → `{id}` |
+| GET/PUT | `/api/profile/:brand` | saved answers `{values}` |
 | GET | `/api/runs/:id` | status, stage, per-page decisions, validation code |
 | POST | `/api/runs/:id/review` | `{page, action: "approve" \| "abort", overrides}` |
 | GET | `/api/runs/:id/pages[/:seq]` | stored survey pages (debugging) |

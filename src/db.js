@@ -29,12 +29,26 @@ const SCHEMA = [
      PRIMARY KEY (run_id, seq)
    )`,
   `CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS settings (
+     key TEXT PRIMARY KEY,
+     value_json TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   )`,
 ];
+// Columns added after the first release (ALTER TABLE has no IF NOT EXISTS in SQLite).
+const MIGRATIONS = [`ALTER TABLE runs ADD COLUMN inputs_json TEXT`];
 
 let ready = false;
 export async function ensureSchema(db) {
   if (ready) return;
   await db.batch(SCHEMA.map((s) => db.prepare(s)));
+  for (const m of MIGRATIONS) {
+    try {
+      await db.prepare(m).run();
+    } catch (e) {
+      if (!/duplicate column/i.test(String(e?.message || e))) throw e;
+    }
+  }
   ready = true;
 }
 
@@ -44,10 +58,10 @@ export async function createRun(db, r) {
   await ensureSchema(db);
   await db
     .prepare(
-      `INSERT INTO runs (id, created_at, updated_at, brand, survey_code, notes, receipt_json, status, stage, review)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 'queued', ?)`,
+      `INSERT INTO runs (id, created_at, updated_at, brand, survey_code, notes, receipt_json, status, stage, review, inputs_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 'queued', ?, ?)`,
     )
-    .bind(r.id, now(), now(), r.brand, r.surveyCode, r.notes || "", JSON.stringify(r.receipt || {}), r.review ? 1 : 0)
+    .bind(r.id, now(), now(), r.brand, r.surveyCode, r.notes || "", JSON.stringify(r.receipt || {}), r.review ? 1 : 0, JSON.stringify(r.inputs || {}))
     .run();
 }
 
@@ -108,6 +122,24 @@ export async function getPage(db, runId, seq) {
   return db.prepare(`SELECT * FROM pages WHERE run_id = ? AND seq = ?`).bind(runId, seq).first();
 }
 
+export async function getSetting(db, key) {
+  await ensureSchema(db);
+  const row = await db.prepare(`SELECT value_json FROM settings WHERE key = ?`).bind(key).first();
+  try {
+    return row ? JSON.parse(row.value_json) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function putSetting(db, key, value) {
+  await ensureSchema(db);
+  await db
+    .prepare(`INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`)
+    .bind(key, JSON.stringify(value ?? {}), now())
+    .run();
+}
+
 function inflate(row) {
   const out = { ...row };
   try {
@@ -125,6 +157,12 @@ function inflate(row) {
   } catch {
     out.pending = null;
   }
+  try {
+    out.inputs = row.inputs_json ? JSON.parse(row.inputs_json) : {};
+  } catch {
+    out.inputs = {};
+  }
+  delete out.inputs_json;
   delete out.log_json;
   delete out.receipt_json;
   delete out.pending_json;

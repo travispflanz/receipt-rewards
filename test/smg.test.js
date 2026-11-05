@@ -214,3 +214,86 @@ describe("real mcdvoice pages from the first end-to-end run (2026-11-05)", () =>
     expect(p.validationCode).toBe("1234567");
   });
 });
+
+import { ratingAnswer, pickByRating, savedAnswer } from "../src/answer.js";
+import { BRANDS, categoryOf } from "../src/brands.js";
+
+describe("your-visit ratings and saved answers", () => {
+  const page = (n) => parseSmgPage(fx(`${n}.html`), "https://www.mcdvoice.com/Survey.aspx?c=1");
+  const mcd = BRANDS.find((b) => b.id === "mcdonalds");
+  const label = (u, v) => u.options.find((o) => o.value === v)?.label;
+
+  it("maps real question wording to categories", () => {
+    expect(categoryOf("The overall value for the price you paid.")).toBe("value");
+    expect(categoryOf("The temperature of your food.")).toBe("food");
+    expect(categoryOf("The quality of your Soft Drink.")).toBe("food");
+    expect(categoryOf("The friendliness of the employees.")).toBe("staff");
+    expect(categoryOf("The ease of placing your order.")).toBe("ordering");
+    expect(categoryOf("The accuracy of your order.")).toBe("accuracy");
+    expect(categoryOf("Please rate your overall satisfaction with your experience at this McDonald’s.")).toBe("overall");
+    expect(categoryOf("Return to this McDonald’s in the next 30 days?")).toBe("overall");
+  });
+
+  it("category ratings pick the matching scale position; unrated rows fall back to overall, then middle", () => {
+    const p = page("mcd-grid-satisfaction");
+    const by = (t) => p.units.find((u) => u.text.includes(t));
+    const inputs = { sentiment: { food: 5, cleanliness: 1, staff: 4 } };
+    expect(label(by("temperature"), ratingAnswer(by("temperature"), inputs).value)).toBe("Highly Satisfied");
+    expect(label(by("cleanliness"), ratingAnswer(by("cleanliness"), inputs).value)).toBe("Highly Dissatisfied");
+    expect(label(by("friendliness"), ratingAnswer(by("friendliness"), inputs).value)).toBe("Satisfied");
+    expect(ratingAnswer(by("speed"), inputs)).toBeNull(); // -> default middle
+    expect(label(by("speed"), ratingAnswer(by("speed"), { sentiment: { overall: 2 } }).value)).toBe("Dissatisfied");
+  });
+
+  it("likelihood scale follows the overall rating by position", () => {
+    const u = page("mcd-likelihood").units[0];
+    expect(pickByRating(u, 5).label).toBe("Highly Likely");
+    expect(pickByRating(u, 3).label).toBe("Somewhat Likely");
+    expect(pickByRating(u, 2).label).toBe("Not Very Likely");
+    expect(pickByRating(u, 1).label).toBe("Not At All Likely");
+  });
+
+  it("accuracy rating and the problem toggle answer the yes/no questions", () => {
+    const acc = page("mcd-required-error").units[0];
+    expect(label(acc, ratingAnswer(acc, { sentiment: { accuracy: 5 } }).value)).toBe("Yes");
+    expect(label(acc, ratingAnswer(acc, { sentiment: { accuracy: 2 } }).value)).toBe("No");
+    expect(ratingAnswer(acc, { sentiment: { accuracy: 3 } })).toBeNull();
+    const prob = { kind: "radio", field: "R016000", text: "Did you experience a problem during your visit?", options: acc.options };
+    expect(label(prob, ratingAnswer(prob, { problem: "no" }).value)).toBe("No");
+    expect(label(prob, ratingAnswer(prob, { problem: "yes" }).value)).toBe("Yes");
+  });
+
+  it("saved answers match the survey's shuffled options by label", () => {
+    const fav = page("mcd-favorite").units.find((u) => u.kind === "radio");
+    const a = savedAnswer(fav, mcd.profileFields, { favorite: "Chick-fil-A" });
+    expect(label(fav, a.value)).toBe("Chick-fil-A");
+    const m = savedAnswer(fav, mcd.profileFields, { favorite: "McDonald’s" });
+    expect(label(fav, m.value)).toMatch(/McDonald/);
+    const other = savedAnswer(fav, mcd.profileFields, { favorite: "Somewhere else", favoriteOther: "Culver's" });
+    expect(label(fav, other.value)).toBe("Somewhere else");
+    expect(other.extra).toEqual({ [fav.field + "Other"]: "Culver's" });
+    const visits = page("mcd-visits").units[0];
+    expect(label(visits, savedAnswer(visits, mcd.profileFields, { visits: "Four or more" }).value)).toBe("Four or more");
+    const income = page("mcd-income").units[0];
+    expect(label(income, savedAnswer(income, mcd.profileFields, { income: "$45,000 to $59,999" }).value)).toBe("$45,000 to $59,999");
+    expect(savedAnswer(income, mcd.profileFields, {})).toBeNull();
+  });
+
+  it("precedence on a page: saved > notes > ratings > middle", async () => {
+    const p = page("mcd-grid-satisfaction");
+    const temp = p.units.find((u) => u.text.includes("temperature"));
+    const taste = p.units.find((u) => u.text.includes("taste"));
+    const speed = p.units.find((u) => u.text.includes("speed"));
+    const env = { AI: { run: async () => ({ response: { answers: [{ id: `Q${p.units.indexOf(temp) + 1}`, basis: "notes", choice: "2", why: "fries cold" }] } }) } };
+    const d = await decidePage(env, p, { notes: "fries were cold", receipt: SAMPLE_RECEIPT, inputs: { sentiment: { food: 5 } }, profileFields: mcd.profileFields });
+    expect(label(temp, d.answers[temp.field])).toBe("Dissatisfied"); // notes win
+    expect(label(taste, d.answers[taste.field])).toBe("Highly Satisfied"); // food rating
+    expect(label(speed, d.answers[speed.field])).toBe("Neither Satisfied nor Dissatisfied"); // middle
+    const fav = page("mcd-favorite");
+    const d2 = await decidePage({}, fav, { notes: "", receipt: SAMPLE_RECEIPT, inputs: { profile: { favorite: "Somewhere else", favoriteOther: "Culver's" } }, profileFields: mcd.profileFields });
+    const radio = fav.units.find((u) => u.kind === "radio");
+    expect(label(radio, d2.answers[radio.field])).toBe("Somewhere else");
+    expect(d2.answers[radio.field + "Other"]).toBe("Culver's");
+    expect(d2.decisions.find((x) => x.field === radio.field).source).toBe("saved");
+  });
+});

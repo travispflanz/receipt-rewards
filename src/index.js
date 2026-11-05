@@ -1,8 +1,8 @@
 // Receipt Rewards — snap a receipt, add notes, get the survey reward code.
 import { readReceipt, normalizeReceipt } from "./ocr.js";
-import { BRANDS, brandById, detectBrand } from "./brands.js";
+import { BRANDS, SENTIMENT_CATEGORIES, brandById, brandPublic, detectBrand } from "./brands.js";
 import { formatSurveyCode } from "./smg.js";
-import { createRun, getRun, listRuns, listPages, getPage, updateRun } from "./db.js";
+import { createRun, getRun, listRuns, listPages, getPage, updateRun, getSetting, putSetting } from "./db.js";
 import UI_HTML from "./ui.html";
 
 export { SurveyRun } from "./workflow.js";
@@ -19,6 +19,28 @@ function safeEqual(a, b) {
   return d === 0;
 }
 
+function cleanSentiment(raw) {
+  const out = {};
+  for (const c of SENTIMENT_CATEGORIES) {
+    const v = Number(raw?.[c.id]);
+    if (Number.isInteger(v) && v >= 1 && v <= 5) out[c.id] = v;
+  }
+  return out;
+}
+
+/** Keep only known fields with one of the survey's own option labels. */
+function cleanProfile(brand, raw) {
+  const out = {};
+  for (const f of brand.profileFields || []) {
+    const v = raw?.[f.id];
+    if (typeof v === "string" && f.options.includes(v)) out[f.id] = v;
+    if (f.otherOption && out[f.id] === f.otherOption && typeof raw?.[f.id + "Other"] === "string") {
+      out[f.id + "Other"] = raw[f.id + "Other"].trim().slice(0, 100);
+    }
+  }
+  return out;
+}
+
 function authorized(req, env) {
   if (!env.APP_PASSCODE) return true;
   const given = req.headers.get("x-passcode") || new URL(req.url).searchParams.get("passcode") || "";
@@ -32,7 +54,23 @@ async function handleApi(req, env, url) {
   if (path === "/api/health") return json({ ok: true });
   if (!authorized(req, env)) return json({ error: "passcode required" }, 401);
 
-  if (path === "/api/session" && method === "GET") return json({ ok: true, brands: BRANDS.map(({ id, name, codeFormat, reward, limits }) => ({ id, name, codeFormat, reward, limits })) });
+  if (path === "/api/session" && method === "GET") {
+    const profiles = {};
+    for (const b of BRANDS) profiles[b.id] = (await getSetting(env.DB, `profile:${b.id}`)) || {};
+    return json({ ok: true, brands: BRANDS.map(brandPublic), sentimentCategories: SENTIMENT_CATEGORIES, profiles });
+  }
+
+  const pm = path.match(/^\/api\/profile\/([\w-]+)$/);
+  if (pm) {
+    const brand = brandById(pm[1]);
+    if (!brand) return json({ error: "unknown restaurant" }, 404);
+    if (method === "GET") return json({ values: (await getSetting(env.DB, `profile:${brand.id}`)) || {} });
+    if (method === "PUT") {
+      const values = cleanProfile(brand, (await req.json())?.values);
+      await putSetting(env.DB, `profile:${brand.id}`, values);
+      return json({ ok: true, values });
+    }
+  }
 
   if (path === "/api/extract" && method === "POST") {
     const { image } = await req.json();
@@ -48,7 +86,12 @@ async function handleApi(req, env, url) {
     const brand = brandById(body.brandId) || brandById(receipt.brandId) || detectBrand(JSON.stringify(receipt)) || (BRANDS.length === 1 ? BRANDS[0] : null);
     if (!brand) return json({ error: "Could not tell which restaurant this receipt is from." }, 400);
     const id = `run-${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
-    await createRun(env.DB, { id, brand: brand.id, surveyCode, notes: String(body.notes || "").slice(0, 4000), receipt, review: !!body.review });
+    const inputs = {
+      sentiment: cleanSentiment(body.sentiment),
+      problem: body.problem === "yes" || body.problem === "no" ? body.problem : null,
+      profile: (await getSetting(env.DB, `profile:${brand.id}`)) || {},
+    };
+    await createRun(env.DB, { id, brand: brand.id, surveyCode, notes: String(body.notes || "").slice(0, 4000), receipt, review: !!body.review, inputs });
     await env.SURVEY_RUN.create({ id, params: { runId: id } });
     return json({ id });
   }

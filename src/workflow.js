@@ -23,7 +23,7 @@ export class SurveyRun extends WorkflowEntrypoint {
       const ctx = await step.do("load run", DB, async () => {
         const r = await getRun(db, runId);
         if (!r) throw new NonRetryableError(`Run ${runId} not found`);
-        return { brand: r.brand, surveyCode: r.survey_code, notes: r.notes || "", receipt: r.receipt || {}, review: !!r.review };
+        return { brand: r.brand, surveyCode: r.survey_code, notes: r.notes || "", receipt: r.receipt || {}, review: !!r.review, inputs: r.inputs || {} };
       });
       const brand = brandById(ctx.brand);
       if (!brand) throw new NonRetryableError(`Unsupported restaurant: ${ctx.brand}`);
@@ -56,7 +56,13 @@ export class SurveyRun extends WorkflowEntrypoint {
           }
           const sig = postedFns(page);
           const repeated = !!sig && sig === state.prevSig;
-          const decided = await decidePage(this.env, page, { notes: ctx.notes, receipt: ctx.receipt, forceRequired: repeated ? true : null });
+          const decided = await decidePage(this.env, page, {
+            notes: ctx.notes,
+            receipt: ctx.receipt,
+            inputs: ctx.inputs,
+            profileFields: brand.profileFields,
+            forceRequired: repeated ? true : null,
+          });
           await appendLog(
             db,
             runId,

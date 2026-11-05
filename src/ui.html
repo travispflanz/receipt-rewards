@@ -57,6 +57,8 @@
   .tag.notes { background: #ffe9a8; color: #6b4e00; }
   .tag.receipt { background: #d9e6ff; color: #1d3f8f; }
   .tag.default-middle { background: #e6e6e6; color: #444; }
+  .tag.your-rating { background: #ffe9a8; color: #6b4e00; }
+  .tag.saved { background: #dff3e4; color: #1f6b3a; }
   .result { text-align: center; }
   .code { font: 800 44px/1.1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .06em; margin: 10px 0; word-break: break-all; }
   .ok { color: var(--good); }
@@ -68,6 +70,22 @@
   .switch { display: flex; align-items: center; gap: 10px; font-size: 14px; margin-top: 12px; }
   .hidden { display: none !important; }
   .review-q { margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+  .ratings { display: grid; gap: 2px; }
+  .rate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .ratings .rate-row:first-child { border-top: 0; }
+  .rate-label { font-size: 14px; line-height: 1.2; }
+  .rate-label small { display: block; color: var(--muted); font-size: 12px; min-height: 14px; }
+  .chips { display: flex; gap: 4px; flex: none; }
+  .chip { appearance: none; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 10px; width: 38px; height: 36px; font-size: 18px; line-height: 1; cursor: pointer; padding: 0; filter: grayscale(1); opacity: .55; }
+  .chip.wide { width: auto; padding: 0 16px; font-size: 14px; font-weight: 600; filter: none; opacity: 1; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: var(--accent-ink); filter: none; opacity: 1; }
+  .linkbtn { appearance: none; background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 2px; }
+  details#savedBox summary { cursor: pointer; display: flex; align-items: center; gap: 8px; list-style: none; font-size: 15px; }
+  details#savedBox summary::-webkit-details-marker { display: none; }
+  details#savedBox summary::after { content: "▾"; margin-left: auto; color: var(--muted); }
+  details#savedBox[open] summary::after { content: "▴"; }
+  .pf { margin-top: 10px; }
+  .pf .q { font-size: 12px; color: var(--muted); margin: 2px 0 4px; }
   .review-q p { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
 </style>
 </head>
@@ -91,6 +109,7 @@
   <div id="app" class="hidden">
     <section class="card">
       <h2><span class="step">1</span> Receipt</h2>
+      <p class="hint" style="margin-top:0">The survey code is the only thing required — snap a photo, upload one, or type it below.</p>
       <div class="row">
         <label class="btn grow">📷 Take photo<input id="camera" type="file" accept="image/*" capture="environment" hidden /></label>
         <label class="btn grow">🖼️ Upload<input id="upload" type="file" accept="image/*" hidden /></label>
@@ -108,14 +127,34 @@
     </section>
 
     <section class="card">
-      <h2><span class="step">2</span> Notes <span class="hint" style="margin:0">(optional)</span></h2>
-      <textarea id="notes" placeholder="Type or dictate anything about the visit — e.g. “fries were hot, order took a while, cashier was friendly”."></textarea>
+      <h2><span class="step">2</span> Your visit <span class="hint" style="margin:0;font-weight:400">(all optional)</span></h2>
+      <p class="hint" style="margin-top:0">How was it? Skip anything you don’t care about — skipped items get the survey’s middle answer.</p>
+      <div id="ratings" class="ratings"></div>
+      <div class="rate-row">
+        <span class="rate-label">Any problems?</span>
+        <div class="chips" id="problem" role="radiogroup" aria-label="Any problems?">
+          <button type="button" class="chip wide" data-v="no" aria-pressed="false">No</button>
+          <button type="button" class="chip wide" data-v="yes" aria-pressed="false">Yes</button>
+        </div>
+      </div>
+      <div class="row" style="justify-content:flex-end;margin-top:4px"><button id="clearRatings" type="button" class="linkbtn">Clear ratings</button></div>
+      <label class="field" for="notes">Notes</label>
+      <textarea id="notes" placeholder="Type or dictate anything specific — e.g. “fries were cold, order took a while, cashier was friendly”."></textarea>
       <div class="row" style="margin-top:8px">
         <button id="mic" class="btn small" type="button">🎙️ Dictate</button>
         <span id="micState" class="hint" style="margin:0;align-self:center"></span>
       </div>
-      <p class="hint">No notes = every rating gets the middle option, and anything the receipt can't answer is left as “no preference”.</p>
+      <p class="hint">Notes beat the ratings when they’re more specific (e.g. Food “Good” but “fries were cold” lowers food temperature only).</p>
       <label class="switch"><input id="review" type="checkbox" /> Let me check each page before it’s submitted</label>
+    </section>
+
+    <section class="card">
+      <details id="savedBox">
+        <summary><span class="step">3</span> <b>Saved answers</b> <span id="savedSummary" class="hint" style="margin:0"></span></summary>
+        <p class="hint">Questions about you rather than the visit. Used for every <span id="savedBrand"></span> receipt until you change them. Leave any unset.</p>
+        <div id="profileFields"></div>
+        <p id="profileStatus" class="hint"></p>
+      </details>
     </section>
 
     <button id="go" class="btn primary">Get my code</button>
@@ -160,6 +199,8 @@
   const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   let passcode = store.get("rr_passcode") || "";
   let receipt = null, imageCanvas = null, rotation = 0, currentRun = null, pollTimer = null, brands = [];
+  let categories = [], ratings = {}, problem = null, profiles = {};
+  const FACES = ["😣", "🙁", "😐", "🙂", "😄"], WORDS = ["Very bad", "Bad", "OK", "Good", "Great"];
 
   async function api(path, opts = {}) {
     const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", "x-passcode": passcode, ...(opts.headers || {}) } });
@@ -173,8 +214,9 @@
   async function unlock() {
     try {
       const s = await api("/api/session");
-      brands = s.brands;
+      brands = s.brands; categories = s.sentimentCategories || []; profiles = s.profiles || {};
       $("brand").innerHTML = brands.map((b) => `<option value="${b.id}">${b.name}</option>`).join("");
+      renderRatings(); renderProfile();
       $("gate").classList.add("hidden"); $("app").classList.remove("hidden");
       loadHistory();
       const last = store.get("rr_last_run");
@@ -234,6 +276,62 @@
     $("facts").classList.toggle("hidden", !f.length);
   }
 
+  // ---------- visit ratings ----------
+  function renderRatings() {
+    $("ratings").innerHTML = categories.map((c) => `<div class="rate-row"><span class="rate-label">${esc(c.label)}<small id="rw-${c.id}"></small></span><div class="chips" role="radiogroup" aria-label="${esc(c.label)}">${
+      FACES.map((f, i) => `<button type="button" class="chip" data-cat="${c.id}" data-v="${i + 1}" aria-pressed="false" title="${WORDS[i]}" aria-label="${esc(c.label)}: ${WORDS[i]}">${f}</button>`).join("")
+    }</div></div>`).join("");
+    syncRatings();
+  }
+  function syncRatings() {
+    document.querySelectorAll(".chip[data-cat]").forEach((b) => b.setAttribute("aria-pressed", String(ratings[b.dataset.cat] === Number(b.dataset.v))));
+    categories.forEach((c) => { const el = $("rw-" + c.id); if (el) el.textContent = ratings[c.id] ? WORDS[ratings[c.id] - 1] : ""; });
+    document.querySelectorAll("#problem .chip").forEach((b) => b.setAttribute("aria-pressed", String(problem === b.dataset.v)));
+  }
+  $("ratings").onclick = (e) => {
+    const b = e.target.closest(".chip[data-cat]"); if (!b) return;
+    const v = Number(b.dataset.v), c = b.dataset.cat;
+    if (ratings[c] === v) delete ratings[c]; else ratings[c] = v;
+    syncRatings();
+  };
+  $("problem").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; problem = problem === b.dataset.v ? null : b.dataset.v; syncRatings(); };
+  $("clearRatings").onclick = () => { ratings = {}; problem = null; syncRatings(); };
+
+  // ---------- saved answers (per restaurant) ----------
+  const currentBrand = () => brands.find((b) => b.id === $("brand").value) || brands[0];
+  function renderProfile() {
+    const b = currentBrand(); if (!b) return;
+    $("savedBrand").textContent = b.name;
+    const vals = profiles[b.id] || {};
+    const fields = b.profileFields || [];
+    $("profileFields").innerHTML = fields.map((f) => `<div class="pf"><label class="field" for="pf-${f.id}" style="margin:0">${esc(f.label)}</label><div class="q">Survey asks: “${esc(f.question)}”</div><select id="pf-${f.id}" data-f="${f.id}"><option value="">— not set —</option>${
+      f.options.map((o) => `<option${vals[f.id] === o ? " selected" : ""}>${esc(o)}</option>`).join("")
+    }</select>${f.otherOption ? `<input id="pf-${f.id}Other" data-other="${f.id}" type="text" maxlength="100" placeholder="Which one?" value="${esc(vals[f.id + "Other"] || "")}" style="margin-top:6px${vals[f.id] === f.otherOption ? "" : ";display:none"}" />` : ""}${f.hint ? `<div class="q" style="margin-top:4px">${esc(f.hint)}</div>` : ""}</div>`).join("") || '<p class="hint">Nothing to save for this restaurant yet.</p>';
+    const n = fields.filter((f) => vals[f.id]).length;
+    $("savedSummary").textContent = fields.length ? `${n} of ${fields.length} set` : "";
+  }
+  let saveTimer = null;
+  function collectProfile() {
+    const b = currentBrand(), out = {};
+    for (const f of b.profileFields || []) {
+      const v = $("pf-" + f.id)?.value; if (v) out[f.id] = v;
+      const o = $("pf-" + f.id + "Other"); if (o) { o.style.display = v === f.otherOption ? "" : "none"; if (v === f.otherOption && o.value.trim()) out[f.id + "Other"] = o.value.trim(); }
+    }
+    return out;
+  }
+  function saveProfile() {
+    const b = currentBrand(); const values = collectProfile();
+    $("profileStatus").textContent = "Saving…";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try { const r = await api(`/api/profile/${b.id}`, { method: "PUT", body: JSON.stringify({ values }) }); profiles[b.id] = r.values; $("profileStatus").textContent = "Saved ✓"; const n = (b.profileFields || []).filter((f) => r.values[f.id]).length; $("savedSummary").textContent = `${n} of ${b.profileFields.length} set`; }
+      catch (e) { $("profileStatus").textContent = "Couldn’t save: " + e.message; }
+    }, 400);
+  }
+  $("profileFields").addEventListener("change", saveProfile);
+  $("profileFields").addEventListener("input", (e) => { if (e.target.dataset.other) saveProfile(); });
+  $("brand").addEventListener("change", renderProfile);
+
   // ---------- dictation ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let rec = null, recOn = false;
@@ -263,7 +361,7 @@
     if (code.length !== 26) { $("code").focus(); $("ocrStatus").innerHTML = '<span class="err">The survey code needs all 26 digits.</span>'; return; }
     $("go").disabled = true;
     try {
-      const r = await api("/api/runs", { method: "POST", body: JSON.stringify({ surveyCode: code, receipt: receipt || {}, notes: $("notes").value, brandId: $("brand").value, review: $("review").checked }) });
+      const r = await api("/api/runs", { method: "POST", body: JSON.stringify({ surveyCode: code, receipt: receipt || {}, notes: $("notes").value, brandId: $("brand").value, review: $("review").checked, sentiment: ratings, problem }) });
       store.set("rr_last_run", r.id);
       resume(r.id);
     } catch (e) { $("go").disabled = false; fail(e.message); }
@@ -292,7 +390,7 @@
     pollTimer = setTimeout(poll, run.status === "review" ? 4000 : 1800);
   }
 
-  const SRC = { notes: "from your notes", receipt: "from receipt", "default-middle": "middle", "default-prefer-not": "prefer not", "default-decline": "declined", skipped: "no preference", "review-override": "you chose", "required-no-issue": "required · no issue", "required-middle-position": "required · middle", "required-neutral": "required · neutral", "required-default-middle": "middle", "required-neutral-comment": "required · neutral" };
+  const SRC = { notes: "from your notes", receipt: "from receipt", "default-middle": "middle", "default-prefer-not": "prefer not", "default-decline": "declined", skipped: "no preference", "review-override": "you chose", "required-no-issue": "required · no issue", "required-middle-position": "required · middle", "required-neutral": "required · neutral", "required-default-middle": "middle", "required-neutral-comment": "required · neutral", saved: "saved answer", "your-rating": "your rating" };
   function renderLog(log) {
     const pages = log.filter((l) => l.type === "page");
     $("pagesLog").innerHTML = pages.map((p) => `<details class="page"${p === pages[pages.length - 1] ? " open" : ""}><summary>Page ${p.n}${p.repeated ? " (re-asked)" : ""} · ${p.decisions.length} question${p.decisions.length === 1 ? "" : "s"}</summary>${
@@ -332,6 +430,8 @@
   $("copy").onclick = () => navigator.clipboard?.writeText($("valCode").textContent).then(() => { $("copy").textContent = "Copied ✓"; setTimeout(() => ($("copy").textContent = "Copy code"), 1500); });
   $("again").onclick = $("retry").onclick = () => {
     store.set("rr_last_run", ""); currentRun = null;
+    if (!$("failure").classList.contains("hidden")) { /* keep inputs so a retry needs no re-entry */ }
+    else { ratings = {}; problem = null; syncRatings(); $("notes").value = ""; $("code").value = ""; receipt = null; imageCanvas = null; $("preview").style.display = "none"; $("facts").classList.add("hidden"); $("ocrStatus").textContent = ""; }
     $("result").classList.add("hidden"); $("failure").classList.add("hidden"); $("progress").classList.add("hidden");
     $("go").disabled = false; window.scrollTo({ top: 0, behavior: "smooth" });
   };
